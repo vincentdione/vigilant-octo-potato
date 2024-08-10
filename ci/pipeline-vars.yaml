@@ -1,0 +1,17 @@
+composants:
+    docker_username: ousmanevincent
+    docker_repo: ousmanevincent/my_quarkus
+    docker_tag: v1.0.1
+    docker_token: dckr_pat_QUCgF1v3mUZvXrJmoRqdWiqBt-w
+    github_token: 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
+    nom_image: my_quarkus
+
+github:
+  token: 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
+  username: vincentdione
+
+
+sonar:
+  sonar_url:  http://localhost:9000
+  sonar_login: squ_d6575dca0739fb958bbb431e3525c7be63b97205
+  sonar_projectkey: my_quarkus_app

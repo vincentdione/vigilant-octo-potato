@@ -1,0 +1,202 @@
+
+registries-ovd: &registries-ovd
+  username: ((composants.docker_username))
+  password: ((composants.docker_token))
+  repository: ((composants.docker_repo))
+  
+
+resources:
+
+  - name: git-ci
+    type: git
+    source:
+      uri: https://github.com/vincentdione/gestion_stock.git
+      branch: main
+      username: ((github.username))
+      password: ((github.token))
+    webhook_token: token-du-webhook
+
+  - name: version-backend
+    type: semver
+    icon: tag
+    source:
+      driver: git
+      uri: https://github.com/vincentdione/gestion_stock.git
+      branch: main
+      username: ((github.username))
+      password: ((github.token))
+      file: version.txt
+      commit_message: "[skip ci] Montée de version"
+  
+  - name: git-ihm-angular
+    type: git
+    source:
+      uri: https://github.com/vincentdione/gestion-stock-front.git
+      branch: main
+      username: ((github.username))
+      password: ((github.token))
+    webhook_token: token-du-webhook
+
+  - name: version-front
+    type: semver
+    icon: tag
+    source:
+      driver: git
+      uri: https://github.com/vincentdione/gestion-stock-front.git
+      branch: main
+      username: ((github.username))
+      password: ((github.token))
+      file: version.txt
+      commit_message: "[skip ci] Montée de version"
+
+  
+  - name: artifacts
+    type: git
+    source:
+      uri: https://github.com/vincentdione/artifact.git
+      branch: main
+      username: ((github.username))
+      password: ((github.token))
+    webhook_token: token-du-webhook
+
+  - name: stock_api_image
+    type: registry-image
+    source:
+      repository: docker
+      <<: *registries-ovd
+  
+  - name: stock_ihm_image
+    type: registry-image
+    source:
+      repository: docker
+      <<: *registries-ovd
+
+
+jobs:
+
+  - name: installation_du_pipeline
+    public: true
+    plan:
+      - get: git-ci
+        trigger: true
+      - set_pipeline: my_app_pipeline
+        file: git-ci/ci/pipeline.yaml
+        var_files: [git-ci/ci/pipeline-vars.yaml]
+
+  - name: analyse_sonar
+    public: true
+    plan:
+      - get: artifacts
+        trigger: true
+      - get: git-ci
+        trigger: true
+      - task: run-sonar-scanner
+        privileged: true
+        file: artifacts/tasks/sonar/task.yaml
+        input_mapping:
+          git-sources: git-ci
+        params:
+          SONAR_PROJECT_KEY: ((sonar.sonar_projectkey))
+          SONAR_SOURCES: src/main
+          #SONAR_HOST_URL: ((sonar.sonar_url))
+          SONAR_LOGIN: ((sonar.sonar_login))
+          
+
+
+  - name: construit_livrables_backend_avec_helm
+    public: true
+    plan:
+      - in_parallel:
+        - get: git-ci
+          trigger: true
+        - get: version-backend
+          trigger: true
+        - get: artifacts
+          trigger: true
+      - in_parallel:
+        - load_var: var-version-backend
+          file: version-backend/version
+
+      - task: build-image
+        privileged: true
+        file: artifacts/tasks/task.yaml
+        params:
+            BUILD_ARG_QUARKUS_PROFILE: dev
+            BUILD_ARG_APP_NAME: my-quarkus-app-1
+            BUILD_ARG_VERSION: version-backend/version
+        input_mapping:
+            git-sources: git-ci
+
+
+      - put: stock_api_image
+        params:
+          image: image/image.tar
+          version: ((.:var-version-backend))
+
+
+  - name: construit_livrables_angular_avec_helm
+    public: true
+    plan:
+      - in_parallel:
+        - get: git-ihm-angular
+          trigger: true
+        - get: version-front
+          trigger: true
+        - get: artifacts
+          trigger: true
+      - in_parallel:
+        - load_var: var-version-front
+          file: version-front/version
+
+
+      - put: stock_ihm_image
+        params:
+          image: image/image.tar
+          version: ((.:var-version-front))
+
+  
+  - name: incremente_version_backend
+    public: true
+    plan:
+      - get: version-backend
+        trigger: true
+        passed:
+          - construit_livrables_backend_avec_helm
+      - put: version-backend
+        params:
+          bump: patch
+
+  - name: incremente_version_front
+    public: true
+    plan:
+      - get: version-front
+        trigger: true
+        passed:
+          - construit_livrables_angular_avec_helm
+      - put: version-front
+        params:
+          bump: patch
+
+  #- name: deploy_to_k8s
+  #  public: true
+  #  plan:
+  #    - get: git-ci
+  #      trigger: true
+  #      passed:
+  #        - construit_livrables_backend_avec_helm
+  #    - task: deploy-k8s
+  #      privileged: true
+  #      file: artifacts/tasks/deploy-k8s/task.yaml
+
+groups:
+  - name: pipeline-backend
+    jobs:
+      - analyse_sonar
+      - construit_livrables_backend_avec_helm
+      - construit_livrables_angular_avec_helm
+#      - deploy_to_k8s
+      - incremente_version_backend
+      - incremente_version_front
+  - name: ci
+    jobs:
+      - installation_du_pipeline

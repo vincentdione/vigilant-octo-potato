@@ -1,0 +1,19 @@
+# task-build-image.yml
+---
+platform: linux
+image_resource:
+  type: registry-image
+  source:
+    repository: concourse/oci-build-task
+inputs:
+- name: git-sources
+outputs:
+- name: image
+params:
+  CONTEXT: git-sources/Dockerfile
+  BUILD_ARG_QUARKUS_PROFILE: ""
+  BUILD_ARG_APP_NAME: ""
+run:
+  path: build
+  
+
